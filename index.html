@@ -1,0 +1,89 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SENTRY-1 ESP32 Code</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #101827;
+  color: white;
+  padding: 15px;
+}
+h2 { color: #65a8ff; }
+button {
+  padding: 12px;
+  margin: 5px 3px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: bold;
+}
+#copy { background: #2878f0; color: white; }
+#download { background: #16a36a; color: white; }
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #202b3c;
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+</style>
+</head>
+<body>
+
+<h2>🤖 SENTRY-1 ESP32 Code</h2>
+<p>ESP32 Surveillance Robot — Source Code</p>
+
+<button id="copy" onclick="copyCode()">📋 Copy Code</button>
+<button id="download" onclick="downloadCode()">⬇ Download Code</button>
+
+<pre id="code">/*
+ SENTRY-1 ESP32 Surveillance Robot
+ Wi-Fi, ESP-NOW, motors, pan-tilt,
+ ultrasonic sensor, patrol and Firebase.
+ 
+ This is a preview placeholder.
+ Replace this block with your complete
+ ESP32 source code before publishing.
+*/
+
+#include &lt;WiFi.h&gt;
+#include &lt;esp_now.h&gt;
+#include &lt;WebServer.h&gt;
+#include &lt;HTTPClient.h&gt;
+#include &lt;WiFiClientSecure.h&gt;
+#include &lt;ESP32Servo.h&gt;
+
+// Add the complete SENTRY-1 program here.
+</pre>
+
+<script>
+function copyCode() {
+  const text = document.getElementById("code").innerText;
+  const area = document.createElement("textarea");
+  area.value = text;
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand("copy");
+  area.remove();
+  alert(ok ? "Code copied!" : "Please select and copy the code.");
+}
+
+function downloadCode() {
+  const text = document.getElementById("code").innerText;
+  const blob = new Blob([text], {type: "text/plain"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "SENTRY-1.ino";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+</script>
+
+</body>
+</html>
