@@ -1,89 +1,438 @@
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SENTRY-1 ESP32 Code</title>
+<title>SENTRY-1 ESP32 Source Code</title>
 <style>
-body {
-  font-family: Arial, sans-serif;
-  background: #101827;
-  color: white;
-  padding: 15px;
-}
-h2 { color: #65a8ff; }
-button {
-  padding: 12px;
-  margin: 5px 3px;
-  border: 0;
-  border-radius: 8px;
-  font-size: 15px;
-  font-weight: bold;
-}
-#copy { background: #2878f0; color: white; }
-#download { background: #16a36a; color: white; }
-pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  background: #202b3c;
-  padding: 12px;
-  border-radius: 8px;
-  overflow-x: auto;
-}
+:root { color-scheme: light; }
+body { margin:0; background:#f3f5f9; color:#182230; font:16px/1.5 Arial,sans-serif; }
+main { max-width:1000px; margin:0 auto; padding:20px; }
+.card { background:#fff; border:1px solid #dce2ea; border-radius:14px; padding:18px; }
+h1 { font-size:1.6rem; margin:0 0 8px; }
+p { margin:8px 0 16px; }
+.actions { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0; }
+button { border:0; border-radius:9px; padding:12px 16px; font-size:1rem; font-weight:700; cursor:pointer; background:#155eef; color:white; }
+button.secondary { background:#344054; }
+textarea { box-sizing:border-box; display:block; width:100%; height:65vh; min-height:420px; resize:vertical; border:1px solid #cbd5e1; border-radius:10px; padding:14px; font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; color:#e5edf7; background:#111827; white-space:pre; }
+.note { color:#475467; font-size:.9rem; }
+#status { min-height:1.4em; color:#067647; font-weight:700; }
 </style>
 </head>
 <body>
+<main>
+<section class="card">
+<h1>SENTRY-1 — ESP32 Source Code</h1>
+<p>View the source code, copy it, or download it as an Arduino <code>.ino</code> file.</p>
+<div class="actions">
+<button id="copyBtn" type="button">📋 Copy Code</button>
+<button id="downloadBtn" class="secondary" type="button">⬇ Download Code (.ino)</button>
+</div>
+<p id="status" role="status" aria-live="polite"></p>
+<textarea id="source" spellcheck="false" readonly aria-label="SENTRY-1 ESP32 source code">/*
+  SENTRY-1 — Board 1: ESP32 (Motors + Pan-Tilt + Patrol + Front Ultrasonic)
+  ------------------------------------------------------------------------
+  Handles all movement and local sensing. Talks to Board 2 (ESP8266)
+  over ESP-NOW to get the back IR sensor's reading instantly, without
+  needing GPIOs for it directly or going through the cloud.
 
-<h2>🤖 SENTRY-1 ESP32 Code</h2>
-<p>ESP32 Surveillance Robot — Source Code</p>
+  BEFORE UPLOADING: run sentry1_get_mac_address.ino on THIS board and on
+  Board 2, then paste Board 2's MAC address into BOARD2_MAC below.
 
-<button id="copy" onclick="copyCode()">📋 Copy Code</button>
-<button id="download" onclick="downloadCode()">⬇ Download Code</button>
+  Local web server routes (joystick control):
+    GET /move?dir=up|down|left|right|stop
+    GET /camera?dir=up|down|left|right|stop
 
-<pre id="code">/*
- SENTRY-1 ESP32 Surveillance Robot
- Wi-Fi, ESP-NOW, motors, pan-tilt,
- ultrasonic sensor, patrol and Firebase.
- 
- This is a preview placeholder.
- Replace this block with your complete
- ESP32 source code before publishing.
+  Firebase paths used:
+    devices/esp32_devkit_v1/lastSeen   (heartbeat)
+    smart/patrol                        (patrol on/off, read every 2s)
+
+  WIRING:
+    Motors: IN1->26 IN2->27 IN3->14 IN4->25 (fanned to both drivers)
+    Servos: Pan->32  Tilt->33
+    Front ultrasonic: TRIG->18  ECHO->19
 */
 
-#include &lt;WiFi.h&gt;
-#include &lt;esp_now.h&gt;
-#include &lt;WebServer.h&gt;
-#include &lt;HTTPClient.h&gt;
-#include &lt;WiFiClientSecure.h&gt;
-#include &lt;ESP32Servo.h&gt;
+#include <WiFi.h>
+#include <esp_now.h>
+#include <WebServer.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <ESP32Servo.h>
 
-// Add the complete SENTRY-1 program here.
-</pre>
+// ---- 1. Wi-Fi ----
+// Replace these placeholders with your own credentials before uploading.
+const char* WIFI_SSID     = "YOUR_WIFI_NAME";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
+// ---- 2. Board 2 MAC ----
+uint8_t BOARD2_MAC[] = {0x2C, 0xF4, 0x32, 0x7A, 0xB1, 0x03};
+
+// ---- 3. Firebase ----
+const char* FIREBASE_HOST  = "military-surveillance1726-default-rtdb.asia-southeast1.firebasedatabase.app";
+const char* HEARTBEAT_PATH = "/devices/esp32_devkit_v1/lastSeen.json";
+const char* PATROL_PATH    = "/smart/patrol.json";
+
+// ---- 4. Pins ----
+const int IN1 = 26, IN2 = 27, IN3 = 14, IN4 = 25;
+const int PAN_PIN = 32, TILT_PIN = 33;
+const int TRIG_PIN = 18, ECHO_PIN = 19;
+
+// ---- 5. Tuning ----
+const int OBSTACLE_DISTANCE_CM = 20;
+const int TOO_CLOSE_AFTER_TURN_CM = 10;
+const unsigned long PATROL_FORWARD_MS = 3000;
+const unsigned long REVERSE_MS = 350;
+const unsigned long PROBE_TURN_MS = 400;
+const unsigned long AVOID_TURN_MS = 700;
+
+// ---- ESP-NOW message format (must match Board 2 exactly) ----
+typedef struct {
+  bool backObstacle;
+} SensorMessage;
+
+volatile bool backObstacleFlag = false;
+
+Servo panServo, tiltServo;
+int panAngle = 90, tiltAngle = 90;
+
+WebServer webServer(80);
+
+unsigned long lastHeartbeat = 0;
+const unsigned long HEARTBEAT_INTERVAL = 5000;
+
+unsigned long lastPatrolCheck = 0;
+const unsigned long PATROL_CHECK_INTERVAL = 2000;
+bool patrolActive = false;
+
+// ================= ESP-NOW RECEIVE CALLBACK =================
+void onDataReceived(const uint8_t *mac_addr, const uint8_t *data, int len) {
+  if (len == sizeof(SensorMessage)) {
+    SensorMessage msg;
+    memcpy(&msg, data, sizeof(msg));
+    backObstacleFlag = msg.backObstacle;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
+  stopMotors();
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  panServo.attach(PAN_PIN);
+  tiltServo.attach(TILT_PIN);
+  panServo.write(panAngle);
+  tiltServo.write(tiltAngle);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("Connected! IP: ");
+  Serial.println(WiFi.localIP());
+
+  // ---- ESP-NOW setup ----
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW init failed!");
+  } else {
+    esp_now_register_recv_cb(onDataReceived);
+
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, BOARD2_MAC, 6);
+    peerInfo.channel = 0;
+    peerInfo.encrypt = false;
+    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+      Serial.println("Failed to add Board 2 as ESP-NOW peer.");
+    } else {
+      Serial.println("ESP-NOW ready, paired with Board 2.");
+    }
+  }
+
+  webServer.on("/move", []() {
+    if (!patrolActive) {
+      String dir = webServer.arg("dir");
+      if (dir == "up") moveForward();
+      else if (dir == "down") moveBackward();
+      else if (dir == "left") turnLeft();
+      else if (dir == "right") turnRight();
+      else if (dir == "stop") stopMotors();
+    }
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    webServer.send(200, "text/plain", "ok");
+  });
+
+  webServer.on("/camera", []() {
+    if (!patrolActive) {
+      String dir = webServer.arg("dir");
+      moveCamera(dir);
+    }
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    webServer.send(200, "text/plain", "ok");
+  });
+
+  webServer.on("/patrol", []() {
+    String state = webServer.arg("state");
+    if (state == "on") {
+      patrolActive = true;
+      Serial.println("Patrol: ON (webserver)");
+    } else if (state == "off") {
+      patrolActive = false;
+      stopMotors();
+      Serial.println("Patrol: OFF (webserver)");
+    }
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    webServer.send(200, "text/plain", patrolActive ? "on" : "off");
+  });
+
+  webServer.on("/patrol/status", []() {
+    webServer.sendHeader("Access-Control-Allow-Origin", "*");
+    webServer.send(200, "text/plain", patrolActive ? "on" : "off");
+  });
+
+  webServer.begin();
+  Serial.println("Joystick web server ready.");
+
+  xTaskCreatePinnedToCore(
+    firebaseTask,
+    "FirebaseTask",
+    8192,
+    NULL,
+    1,
+    NULL,
+    0
+  );
+}
+
+// Runs forever on Core 0
+void firebaseTask(void *parameter) {
+  sendHeartbeat();
+
+  for (;;) {
+    unsigned long now = millis();
+
+    if (now - lastPatrolCheck >= PATROL_CHECK_INTERVAL) {
+      checkPatrolState();
+      lastPatrolCheck = now;
+    }
+
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+  }
+}
+
+void loop() {
+  webServer.handleClient();
+
+  if (patrolActive) {
+    runPatrolCycle();
+  }
+}
+
+// ================= PATROL MODE =================
+
+void checkPatrolState() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  String json = httpGet(PATROL_PATH);
+  bool enabled = json.indexOf("\"enabled\":true") != -1;
+  if (enabled != patrolActive) {
+    patrolActive = enabled;
+    if (!patrolActive) stopMotors();
+    Serial.println(patrolActive ? "Patrol: ON" : "Patrol: OFF");
+  }
+}
+
+void runPatrolCycle() {
+  moveForward();
+  unsigned long driveStart = millis();
+  bool stoppedForObstacle = false;
+
+  while (millis() - driveStart < PATROL_FORWARD_MS) {
+    if (obstacleAhead()) {
+      stoppedForObstacle = true;
+      break;
+    }
+  }
+  stopMotors();
+
+  panScan();
+  tiltScan();
+
+  if (!stoppedForObstacle) return;
+
+  Serial.println("Obstacle detected — backing up.");
+  moveBackward();
+  delay(REVERSE_MS);
+  stopMotors();
+
+  turnLeft(); delay(PROBE_TURN_MS); stopMotors();
+  long leftDist = readUltrasonicCM();
+  turnRight(); delay(PROBE_TURN_MS); stopMotors();
+
+  turnRight(); delay(PROBE_TURN_MS); stopMotors();
+  long rightDist = readUltrasonicCM();
+  turnLeft(); delay(PROBE_TURN_MS); stopMotors();
+
+  Serial.print("Left: "); Serial.print(leftDist);
+  Serial.print("  Right: "); Serial.println(rightDist);
+
+  if (leftDist > rightDist) {
+    turnLeft(); delay(AVOID_TURN_MS);
+  } else {
+    turnRight(); delay(AVOID_TURN_MS);
+  }
+  stopMotors();
+
+  if (readUltrasonicCM() < TOO_CLOSE_AFTER_TURN_CM) {
+    if (!backObstacleFlag) {
+      Serial.println("Still boxed in — reversing (back confirmed clear by Board 2).");
+      moveBackward();
+      delay(REVERSE_MS);
+      stopMotors();
+    } else {
+      Serial.println("Boxed in on both sides — staying stopped this cycle.");
+    }
+  }
+}
+
+void panScan() {
+  for (int a = 90; a <= 150; a += 2) { panServo.write(a); delay(20); }
+  for (int a = 150; a >= 30; a -= 2) { panServo.write(a); delay(20); }
+  panServo.write(90);
+  panAngle = 90;
+}
+
+void tiltScan() {
+  tiltServo.write(130); delay(300);
+  tiltServo.write(50);  delay(300);
+  tiltServo.write(90);  delay(200);
+  tiltAngle = 90;
+}
+
+// ================= CAMERA JOYSTICK =================
+
+void moveCamera(const String& direction) {
+  if (direction == "up") { tiltAngle = 180; tiltServo.write(tiltAngle); }
+  else if (direction == "down") { tiltAngle = 0; tiltServo.write(tiltAngle); }
+  else if (direction == "left") { panAngle = 0; panServo.write(panAngle); }
+  else if (direction == "right") { panAngle = 180; panServo.write(panAngle); }
+  else if (direction == "stop") { returnCameraToCenter(); }
+}
+
+void returnCameraToCenter() {
+  while (panAngle != 90 || tiltAngle != 90) {
+    if (panAngle < 90) panAngle++; else if (panAngle > 90) panAngle--;
+    if (tiltAngle < 90) tiltAngle++; else if (tiltAngle > 90) tiltAngle--;
+    panServo.write(panAngle);
+    tiltServo.write(tiltAngle);
+    delay(15);
+  }
+}
+
+// ================= SENSORS =================
+
+long readUltrasonicCM() {
+  digitalWrite(TRIG_PIN, LOW);  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH); delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  if (duration == 0) return 999;
+  return duration * 0.034 / 2;
+}
+
+bool obstacleAhead() {
+  long dist = readUltrasonicCM();
+  return (dist > 0 && dist < OBSTACLE_DISTANCE_CM);
+}
+
+// ================= MOTORS =================
+
+void leftForward()  { digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); }
+void leftBackward() { digitalWrite(IN1, LOW);  digitalWrite(IN2, HIGH); }
+void leftStop()      { digitalWrite(IN1, LOW);  digitalWrite(IN2, LOW); }
+
+void rightForward()  { digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); }
+void rightBackward() { digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); }
+void rightStop()      { digitalWrite(IN3, LOW);  digitalWrite(IN4, LOW); }
+
+void stopMotors()   { leftStop(); rightStop(); }
+void moveForward()  { leftForward(); rightForward(); }
+void moveBackward() { leftBackward(); rightBackward(); }
+void turnLeft()      { leftBackward(); rightForward(); }
+void turnRight()     { leftForward(); rightBackward(); }
+
+// ================= NETWORKING =================
+
+String httpGet(const char* path) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String url = String("https://") + FIREBASE_HOST + path;
+  String result = "";
+  if (https.begin(client, url)) {
+    int code = https.GET();
+    if (code == 200) result = https.getString();
+    https.end();
+  }
+  return result;
+}
+
+void httpPut(const char* path, const String& payload) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String url = String("https://") + FIREBASE_HOST + path;
+  if (https.begin(client, url)) {
+    https.addHeader("Content-Type", "application/json");
+    https.PUT(payload);
+    https.end();
+  }
+}
+
+void sendHeartbeat() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  httpPut(HEARTBEAT_PATH, "{\".sv\": \"timestamp\"}");
+}
+</textarea>
+<p class="note">Security note: Wi-Fi credentials have been replaced with placeholders. Before uploading this code to your ESP32, enter your own Wi-Fi name and password. Review your Firebase security rules before sharing project details publicly.</p>
+</section>
+</main>
 <script>
-function copyCode() {
-  const text = document.getElementById("code").innerText;
-  const area = document.createElement("textarea");
-  area.value = text;
-  document.body.appendChild(area);
-  area.select();
-  const ok = document.execCommand("copy");
-  area.remove();
-  alert(ok ? "Code copied!" : "Please select and copy the code.");
-}
+const source = document.getElementById('source');
+const status = document.getElementById('status');
 
-function downloadCode() {
-  const text = document.getElementById("code").innerText;
-  const blob = new Blob([text], {type: "text/plain"});
+document.getElementById('copyBtn').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(source.value);
+    status.textContent = 'Code copied to clipboard.';
+  } catch (e) {
+    source.focus();
+    source.select();
+    const ok = document.execCommand('copy');
+    status.textContent = ok ? 'Code copied to clipboard.' : 'Copy failed. Select the code and copy it manually.';
+  }
+});
+
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  const blob = new Blob([source.value], {type:'text/plain;charset=utf-8'});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
-  a.download = "SENTRY-1.ino";
+  a.download = 'SENTRY-1.ino';
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+  status.textContent = 'Download started: SENTRY-1.ino';
+});
 </script>
-
 </body>
 </html>
